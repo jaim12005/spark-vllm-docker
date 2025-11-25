@@ -65,7 +65,7 @@ Or if you want to start the cluster node (head or regular), you can launch with 
 docker run --privileged --gpus all -it --rm \
   --ipc=host --shm-size 10.24g \
   --network host \
-  --name vllm_node \ 
+  --name vllm_node \
   -v ~/.cache/huggingface:/root/.cache/huggingface \
   vllm-node ./run-cluster-node.sh \
     --role head \
