@@ -52,10 +52,16 @@ ENV PIP_CACHE_DIR=/root/.cache/pip
 RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
     pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
 
-# You can add termplotlib to the list below if you want to visualize text graphs in vllm bench serve
+# Install additional dependencies
 RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
-    pip install xgrammar triton fastsafetensors 
+    pip install xgrammar fastsafetensors
 
+# Install latest Triton from main
+RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
+     pip install  git+https://github.com/triton-lang/triton.git \
+     git+https://github.com/triton-lang/triton.git#subdirectory=python/triton_kernels
+
+# Install FlashInfer packages
 RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
     pip install flashinfer-python --no-deps --index-url https://flashinfer.ai/whl && \
     pip install flashinfer-cubin --index-url https://flashinfer.ai/whl && \
@@ -117,6 +123,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV VLLM_BASE_DIR=/workspace/vllm
 
+# Set pip cache directory
+ENV PIP_CACHE_DIR=/root/.cache/pip
+
 # Install minimal runtime dependencies (NCCL, Python)
 # Note: "devel" tools like cmake/gcc are NOT installed here to save space
 RUN apt update && apt upgrade -y \
@@ -128,16 +137,16 @@ RUN apt update && apt upgrade -y \
 # Set final working directory
 WORKDIR $VLLM_BASE_DIR
 
+# Download Tiktoken files
+RUN mkdir -p tiktoken_encodings && \
+    wget -O tiktoken_encodings/o200k_base.tiktoken "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken" && \
+    wget -O tiktoken_encodings/cl100k_base.tiktoken "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"
+
 # Copy artifacts from Builder Stage
 # We copy the python packages and executables
 # No need to copy source code, as it's already in the site-packages
 COPY --from=builder /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
-
-# Download Tiktoken files
-RUN mkdir -p tiktoken_encodings && \
-    wget -O tiktoken_encodings/o200k_base.tiktoken "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken" && \
-    wget -O tiktoken_encodings/cl100k_base.tiktoken "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"
 
 # Setup Env for Runtime
 ENV TORCH_CUDA_ARCH_LIST=12.1a
@@ -150,4 +159,5 @@ COPY run-cluster-node.sh $VLLM_BASE_DIR/
 RUN chmod +x $VLLM_BASE_DIR/run-cluster-node.sh
 
 # Final extra deps
-RUN pip install ray[default]
+RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
+    pip install ray[default]
