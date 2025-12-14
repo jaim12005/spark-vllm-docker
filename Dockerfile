@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.6
 
 # =========================================================
-# STAGE 1: Builder (Builds vLLM from Source)
+# STAGE 1: Base Image (Installs Dependencies)
 # =========================================================
 FROM nvidia/cuda:13.0.2-devel-ubuntu24.04 AS base
 
@@ -38,9 +38,6 @@ WORKDIR $VLLM_BASE_DIR
 ENV TORCH_CUDA_ARCH_LIST=12.1a
 ENV TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
 
-# Initial Triton repo clone (cached forever) - before all cache busters
-RUN git clone https://github.com/triton-lang/triton.git
-
 # --- CACHE BUSTER ---
 # Change this argument to force a re-download of PyTorch/FlashInfer
 ARG CACHEBUST_DEPS=1
@@ -65,6 +62,39 @@ RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
     pip install flashinfer-cubin --index-url https://flashinfer.ai/whl && \
     pip install flashinfer-jit-cache --index-url https://flashinfer.ai/whl/cu130 && \
     pip install apache-tvm-ffi nvidia-cudnn-frontend nvidia-cutlass-dsl nvidia-ml-py tabulate
+
+# =========================================================
+# STAGE 2: Triton Builder (Compiles Triton independently)
+# =========================================================
+FROM base AS triton-builder
+
+WORKDIR $VLLM_BASE_DIR
+
+# Initial Triton repo clone (cached forever)
+RUN git clone https://github.com/triton-lang/triton.git
+
+# We expect TRITON_SHA to be passed from the command line to break the cache
+# Set to v3.5.1 commit by default
+ARG TRITON_SHA=0add68262ab0a2e33b84524346cb27cbb2787356
+
+WORKDIR $VLLM_BASE_DIR/triton
+
+# This only runs if TRITON_SHA differs from the last build
+RUN --mount=type=cache,id=ccache,target=/root/.ccache \
+    --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
+    git fetch origin && \
+    git checkout ${TRITON_SHA} && \
+    git submodule sync && \
+    git submodule update --init --recursive && \
+    pip install -r python/requirements.txt && \
+    mkdir -p /workspace/wheels && \
+    pip wheel --no-build-isolation . --wheel-dir=/workspace/wheels -v && \
+    pip wheel python/triton_kernels --no-deps --wheel-dir=/workspace/wheels
+
+# =========================================================
+# STAGE 3: vLLM Builder (Builds vLLM from Source)
+# =========================================================
+FROM base AS builder
 
 # --- VLLM SOURCE CACHE BUSTER ---
 # Change THIS argument to force a fresh git clone and rebuild of vLLM
@@ -113,26 +143,13 @@ RUN --mount=type=cache,id=ccache,target=/root/.ccache \
     --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
     pip install --no-build-isolation . -v
 
-# Install latest Triton from main - override version pulled from dependencies
-
-# We expect TRITON_SHA to be passed from the command line to break the cache
-# Set to v3.5.1 commit by default
-ARG TRITON_SHA=0add68262ab0a2e33b84524346cb27cbb2787356
-
-# This only runs if TRITON_SHA differs from the last build
-RUN --mount=type=cache,id=ccache,target=/root/.ccache \
-    --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
-    cd triton && \
-    git fetch origin && \
-    git checkout ${TRITON_SHA} && \
-    git submodule sync && \
-    git submodule update --init --recursive && \
-    pip install -r python/requirements.txt && \
-    pip install --no-build-isolation . -v && \
-    pip install python/triton_kernels --no-deps
+# Install custom Triton from triton-builder
+COPY --from=triton-builder /workspace/wheels /workspace/wheels
+RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
+    pip install /workspace/wheels/*.whl
 
 # =========================================================
-# STAGE 2: Runner (Transfers only necessary artifacts)
+# STAGE 4: Runner (Transfers only necessary artifacts)
 # =========================================================
 FROM nvidia/cuda:13.0.2-devel-ubuntu24.04 AS runner
 
