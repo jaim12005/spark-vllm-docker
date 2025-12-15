@@ -11,7 +11,8 @@ REBUILD_VLLM=false
 COPY_HOST=""
 SSH_USER="$USER"
 NO_BUILD=false
-TRITON_SHA=""
+TRITON_REF="v3.5.1"
+VLLM_REF="main"
 
 # Help function
 usage() {
@@ -19,7 +20,8 @@ usage() {
     echo "  -t, --tag <tag>           : Image tag (default: 'vllm-node')"
     echo "  --rebuild-deps            : Set cache bust for dependencies"
     echo "  --rebuild-vllm            : Set cache bust for vllm"
-    echo "  --triton-sha <sha>        : Triton commit SHA (default: auto-detect latest main)"
+    echo "  --triton-ref <ref>        : Triton commit SHA, branch or tag (default: 'v3.5.1')"
+    echo "  --vllm-ref <ref>          : vLLM commit SHA, branch or tag (default: 'main')"
     echo "  -h, --copy-to-host <host> : Host address to copy the image to (if not set, don't copy)"
     echo "  -u, --user <user>         : Username for ssh command (default: \$USER)"
     echo "  --no-build                : Skip building, only copy image (requires --copy-to-host)"
@@ -33,7 +35,8 @@ while [[ "$#" -gt 0 ]]; do
         -t|--tag) IMAGE_TAG="$2"; shift ;;
         --rebuild-deps) REBUILD_DEPS=true ;;
         --rebuild-vllm) REBUILD_VLLM=true ;;
-        --triton-sha) TRITON_SHA="$2"; shift ;;
+        --triton-ref) TRITON_REF="$2"; shift ;;
+        --vllm-ref) VLLM_REF="$2"; shift ;;
         -h|--copy-to-host) COPY_HOST="$2"; shift ;;
         -u|--user) SSH_USER="$2"; shift ;;
         --no-build) NO_BUILD=true ;;
@@ -52,13 +55,6 @@ fi
 # Build image (unless --no-build is set)
 BUILD_TIME=0
 if [ "$NO_BUILD" = false ]; then
-    # Auto-detect TRITON_SHA if not provided
-    if [ -z "$TRITON_SHA" ]; then
-        echo "Auto-detecting Triton commit for v3.5.1..."
-        TRITON_SHA=$(git ls-remote https://github.com/triton-lang/triton.git refs/tags/v3.5.1 | cut -f1)
-        echo "Detected TRITON_SHA: $TRITON_SHA"
-    fi
-
     # Construct build command
     CMD=("docker" "build" "-t" "$IMAGE_TAG")
 
@@ -72,8 +68,11 @@ if [ "$NO_BUILD" = false ]; then
         CMD+=("--build-arg" "CACHEBUST_VLLM=$(date +%s)")
     fi
 
-    # Add TRITON_SHA to build arguments
-    CMD+=("--build-arg" "TRITON_SHA=$TRITON_SHA")
+    # Add TRITON_REF to build arguments
+    CMD+=("--build-arg" "TRITON_REF=$TRITON_REF")
+
+    # Add VLLM_REF to build arguments
+    CMD+=("--build-arg" "VLLM_REF=$VLLM_REF")
 
     # Add build context
     CMD+=(".")

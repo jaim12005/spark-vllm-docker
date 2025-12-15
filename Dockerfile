@@ -74,17 +74,17 @@ WORKDIR $VLLM_BASE_DIR
 # Initial Triton repo clone (cached forever)
 RUN git clone https://github.com/triton-lang/triton.git
 
-# We expect TRITON_SHA to be passed from the command line to break the cache
-# Set to v3.5.1 commit by default
-ARG TRITON_SHA=0add68262ab0a2e33b84524346cb27cbb2787356
+# We expect TRITON_REF to be passed from the command line to break the cache
+# Set to v3.5.1 tag by default
+ARG TRITON_REF=v3.5.1
 
 WORKDIR $VLLM_BASE_DIR/triton
 
-# This only runs if TRITON_SHA differs from the last build
+# This only runs if TRITON_REF differs from the last build
 RUN --mount=type=cache,id=ccache,target=/root/.ccache \
     --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
     git fetch origin && \
-    git checkout ${TRITON_SHA} && \
+    git checkout ${TRITON_REF} && \
     git submodule sync && \
     git submodule update --init --recursive && \
     pip install -r python/requirements.txt && \
@@ -102,6 +102,9 @@ FROM base AS builder
 # without re-installing the dependencies above.
 ARG CACHEBUST_VLLM=1
 
+# Git reference (branch, tag, or SHA) to checkout
+ARG VLLM_REF=main
+
 # 4. Smart Git Clone (Fetch changes instead of full re-clone)
 # We mount a cache at /repo-cache. This directory persists on your host machine.
 RUN --mount=type=cache,id=repo-cache,target=/repo-cache \
@@ -115,7 +118,10 @@ RUN --mount=type=cache,id=repo-cache,target=/repo-cache \
         echo "Cache hit: Fetching updates..." && \
         cd vllm && \
         git fetch --all && \
-        git reset --hard origin/main && \
+        git checkout ${VLLM_REF} && \
+        if [ "${VLLM_REF}" = "main" ]; then \
+            git reset --hard origin/main; \
+        fi && \
         git submodule update --init --recursive; \
     fi && \
     # 3. Copy the updated code from the cache to the actual container workspace
