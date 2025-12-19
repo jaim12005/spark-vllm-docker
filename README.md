@@ -26,7 +26,7 @@ The Dockerfile builds from the main branch of VLLM, so depending on when you run
 
 ### 2025-12-19
 
-Updated `build-and-copy.sh` to support copying to multiple hosts (thanks @eric-humane for the contribution).
+Updated `build-and-copy.sh` to support copying to multiple hosts (thanks @ericlewis for the contribution).
 - Added `-c, --copy-to` (accepts space- or comma-separated host lists) and kept `--copy-to-host` as a backward-compatible alias.
 - Added `--copy-parallel` to copy to all hosts concurrently.
 - Added autodiscovery support: if no hosts are provided to `--copy-to`, the script detects other cluster nodes automatically.
